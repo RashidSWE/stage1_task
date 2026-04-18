@@ -45,4 +45,4 @@ async def general_exception_handler(request: Request, exc: Exception):
     )
 
 
-app.include_router(analyze.router, prefix="/profiles")
+app.include_router(analyze.router, prefix="/api")
