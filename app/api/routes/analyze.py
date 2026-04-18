@@ -11,7 +11,7 @@ import httpx
 router = APIRouter()
 
 
-@router.post("/api/profiles")
+@router.post("/profiles")
 async def analyze(name: str, session: Session = Depends(get_session)):
 
     if not name or not name.strip():
@@ -74,7 +74,6 @@ async def analyze(name: str, session: Session = Depends(get_session)):
     session.flush()
     session.refresh(person)
 
-    print(person.id)
     # Gender
     gender = GenderResult(
         name_id=person.id,
@@ -125,7 +124,7 @@ async def analyze(name: str, session: Session = Depends(get_session)):
         }
     }
 
-@router.get("/api/profiles/{id}")
+@router.get("/profiles/{id}")
 async def get_profiles(id: str, session: Session = Depends(get_session)):
 
     if not id:
@@ -157,7 +156,7 @@ async def get_profiles(id: str, session: Session = Depends(get_session)):
         },
     }
 
-@router.get("/api/profiles")
+@router.get("/profiles")
 async def get_all_profiles(
     gender: Optional[str] = None,
     country_id: Optional[str] = None,
@@ -205,7 +204,7 @@ async def get_all_profiles(
         "data": data
     }
 
-@router.delete("/api/profiles/{id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/profiles/{id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_profile(id: str, session: Session = Depends(get_session)):
     profile = session.get(NameAnalysis, id)
 
