@@ -13,7 +13,7 @@ router = APIRouter()
 
 @router.post("/profiles", status_code=status.HTTP_201_CREATED)
 async def analyze(request: NameRequest, session: Session = Depends(get_session)):
-
+    name = request.name.strip()
     if not name or not name.strip():
         raise HTTPException(status_code=400, detail="Missing or Empty name")
 
