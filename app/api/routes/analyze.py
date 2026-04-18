@@ -178,7 +178,7 @@ async def get_all_profiles(
     )
 
     if gender:
-        statement = statement.where(GenderResult.gender == gender)
+        statement = statement.where(GenderResult.gender == gender.lower())
     if country_id:
         statement = statement.where(NationalizeResult.country_id == country_id)
     if age_group:
