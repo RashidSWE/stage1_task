@@ -11,7 +11,7 @@ import httpx
 router = APIRouter()
 
 
-@router.post("/profiles")
+@router.post("/profiles", status_code=status.HTTP_201_CREATED)
 async def analyze(name: str, session: Session = Depends(get_session)):
 
     if not name or not name.strip():
