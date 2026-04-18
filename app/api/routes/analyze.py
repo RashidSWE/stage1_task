@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 from app.db.session import get_session
-from app.models.model import NameAnalysis, GenderCategory, GenderResult, AgeResult, NationalizeResult
+from app.models.model import NameAnalysis, GenderCategory, GenderResult, AgeResult, NationalizeResult, NameRequest
 import httpx
 from app.services.classify import classify_age
 from typing import Optional
@@ -12,7 +12,7 @@ router = APIRouter()
 
 
 @router.post("/profiles", status_code=status.HTTP_201_CREATED)
-async def analyze(name: str, session: Session = Depends(get_session)):
+async def analyze(request: NameRequest, session: Session = Depends(get_session)):
 
     if not name or not name.strip():
         raise HTTPException(status_code=400, detail="Missing or Empty name")

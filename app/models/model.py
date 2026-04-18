@@ -6,6 +6,10 @@ from uuid6 import uuid7
 from datetime import datetime
 from sqlalchemy.orm import Mapped
 
+
+class NameRequest(BaseModel):
+    name: str
+
 class GenderCategory(str, Enum):
     MALE = "male"
     FEMALE =  "female"
