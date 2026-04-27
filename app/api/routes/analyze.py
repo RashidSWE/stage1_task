@@ -1,12 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlmodel import Session, select
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from sqlmodel import Session, select, func
 from app.db.session import get_session
-from app.models.model import NameAnalysis, GenderCategory, GenderResult, AgeResult, NationalizeResult, NameRequest
+from app.models.model import NameAnalysis, GenderCategory, GenderResult, AgeResult, NationalizeResult, NameRequest, ProfileResponse, Profile
 import httpx
 from app.services.classify import classify_age
+from app.services.parse import parse_query
 from typing import Optional
 import asyncio
 import httpx
+import pycountry
 
 router = APIRouter()
 
@@ -52,14 +54,14 @@ async def analyze(request: NameRequest, session: Session = Depends(get_session))
                 client.get(f"https://api.nationalize.io?name={name}"),
             )
     except httpx.TimeoutException:
-        raise HTTPException(status_c0de=504, detail="External API timed out")
+        raise HTTPException(status_code=504, detail="External API timed out")
     except httpx.RequestError:
         raise HTTPException(status_code=502, detail="Failed to reach external API")
     
     gender_data = gender_res.json()
     age_data = age_res.json()
     nat_data = nat_res.json()
-
+    print(nat_data)
     if not gender_data.get("gender") or not gender_data.get("count"):
         raise HTTPException(status_code=502, detail="Genderize returned an invalid response")
 
@@ -93,6 +95,7 @@ async def analyze(request: NameRequest, session: Session = Depends(get_session))
     countries = nat_data.get("country", [])
 
     top_country = max(countries, key=lambda x: x["probability"], default=None)
+    country_object = pycountry.countries.get(alpha_2=top_country["country_id"])
 
     nationality = None
 
@@ -101,9 +104,10 @@ async def analyze(request: NameRequest, session: Session = Depends(get_session))
             name_id=person.id,
             country_id=top_country["country_id"],
             country_probability=top_country["probability"],
+            country_name=country_object.name if country_object else "Unknown"
         )
         session.add(nationality)
-
+    print(nationality.country_name)
     session.add(gender)
     session.add(age)
     session.commit()
@@ -120,9 +124,78 @@ async def analyze(request: NameRequest, session: Session = Depends(get_session))
             "age_group": age.age_group,
             "country_id": nationality.country_id if nationality else None,
             "country_probability": nationality.country_probability if nationality else None,
+            "country_name": nationality.country_name if nationality else None,
             "created_at": person.created_at
         }
     }
+
+def fetch_profiles(
+    gender, age_group, country_id, min_age, max_age,
+    min_gender_probability, min_country_probability,
+    sort_by, order, page, limit, session
+):
+    query = select(Profile)
+
+    if gender:
+        query = query.where(Profile.gender == gender.lower())
+    if country_id:
+        query = query.where(Profile.country_id == country_id.upper())
+    if age_group:
+        query = query.where(Profile.age_group == age_group.lower())
+    if min_age is not None:
+        query = query.where(Profile.age >= min_age)
+    if max_age is not None:
+        query = query.where(Profile.age <= max_age)
+    if min_gender_probability is not None:
+        query = query.where(Profile.gender_probability >= min_gender_probability)
+    if min_country_probability is not None:
+        query = query.where(Profile.country_probability >= min_country_probability)
+
+    total = session.exec(select(func.count()).select_from(query.subquery())).one()
+
+    if sort_by:
+        column = getattr(Profile, sort_by)
+        query = query.order_by(column.desc() if order == "desc" else column.asc())
+
+    offset = (page - 1) * limit
+    query = query.offset(offset).limit(limit)
+
+    profiles = session.exec(query).all()
+
+    return {
+        "status": "success",
+        "page": page,
+        "limit": limit,
+        "total": total,
+        "data": [ProfileResponse.model_validate(p) for p in profiles]
+    }
+
+@router.get("/profiles/search")
+async def Natural_language_query(
+    q: str = Query(...),
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=50),
+    session: Session = Depends(get_session)
+):
+    filters = parse_query(q)
+
+    if filters is None:
+        return {"status": "error", "messag": "Unable to interpret query"}
+
+    return fetch_profiles(
+        gender=filters.get("gender"),
+        age_group=filters.get("age_group"),
+        country_id=filters.get("country_id"),
+        min_age=filters.get("min_age"),
+        max_age=filters.get("max_age"),
+        min_gender_probability=filters.get("min_gender_probability"),
+        min_country_probability=filters.get("min_country_probability"),
+        sort_by=filters.get("sort_by"),
+        order=filters.get("order", "asc"),
+        page=page,
+        limit=limit,
+        session=session
+    )
 
 @router.get("/profiles/{id}")
 async def get_profiles(id: str, session: Session = Depends(get_session)):
@@ -158,51 +231,55 @@ async def get_profiles(id: str, session: Session = Depends(get_session)):
 
 @router.get("/profiles")
 async def get_all_profiles(
-    gender: Optional[str] = None,
-    country_id: Optional[str] = None,
-    age_group: Optional[str] = None,
+    gender: Optional[str] = Query(None, description="male | female | unkown"),
+    country_id: Optional[str] = Query(None, description="ISO code e.g US, UK"),
+    age_group: Optional[str] =Query(None, description="child | teenager | adult| senior"),
+    min_age: Optional[int] = Query(None),
+    max_age: Optional[int] = Query(None),
+    min_gender_probability: Optional[float] = Query(None),
+    min_country_probability: Optional[float] = Query(None),
+
+    sort_by: Optional[str] = Query(None, pattern="^(age|created_at|gender_probability)$"),
+    order: Optional[str] = Query("asc", pattern="^(asc|desc)$"),
+
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=50),
     session: Session = Depends(get_session)
 ):
-    if gender:
-        gender = gender.lower()
-    if country_id:
-        country_id = country_id.upper()
-    if age_group:
-        age_group = age_group.lower()
     
-    statement = (
-        select(NameAnalysis, GenderResult, AgeResult, NationalizeResult)
-        .join(GenderResult, GenderResult.name_id == NameAnalysis.id)
-        .join(AgeResult, AgeResult.name_id == NameAnalysis.id)
-        .join(NationalizeResult, NationalizeResult.name_id == NameAnalysis.id)
+    # statement = (
+    #     select(NameAnalysis, GenderResult, AgeResult, NationalizeResult)
+    #     .join(GenderResult, GenderResult.name_id == NameAnalysis.id)
+    #     .join(AgeResult, AgeResult.name_id == NameAnalysis.id)
+    #     .join(NationalizeResult, NationalizeResult.name_id == NameAnalysis.id)
+    # )
+
+    # if gender:
+    #     statement = statement.where(GenderResult.gender == gender.lower())
+    # if country_id:
+    #     statement = statement.where(NationalizeResult.country_id == country_id)
+    # if age_group:
+    #     statement = statement.where(AgeResult.age_group == age_group)
+    
+    # results = session.exec(statement).all()
+
+    # data = []
+
+    # for name, gender_res, age_res, nat_res in results:
+    #     data.append({
+    #         "id": name.id,
+    #         "name": name.name,
+    #         "gender": gender_res.gender,
+    #         "age": age_res.age,
+    #         "age_group": age_res.age_group,
+    #         "country_id": nat_res.country_id,
+    #     })
+    
+    return fetch_profiles(
+        gender, age_group, country_id, min_age, max_age,
+        min_gender_probability, min_country_probability,
+        sort_by, order, page, limit, session
     )
-
-    if gender:
-        statement = statement.where(GenderResult.gender == gender.lower())
-    if country_id:
-        statement = statement.where(NationalizeResult.country_id == country_id)
-    if age_group:
-        statement = statement.where(AgeResult.age_group == age_group)
-    
-    results = session.exec(statement).all()
-
-    data = []
-
-    for name, gender_res, age_res, nat_res in results:
-        data.append({
-            "id": name.id,
-            "name": name.name,
-            "gender": gender_res.gender,
-            "age": age_res.age,
-            "age_group": age_res.age_group,
-            "country_id": nat_res.country_id,
-        })
-    
-    return {
-        "status": "success",
-        "count": len(data),
-        "data": data
-    }
 
 @router.delete("/profiles/{id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_profile(id: str, session: Session = Depends(get_session)):
