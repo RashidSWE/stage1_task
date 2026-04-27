@@ -142,6 +142,141 @@ Delete a profile by ID.
 
 ---
 
+# Natural Language Query Parser
+
+The `/api/profiles/search?q=` endpoint accepts plain English queries and converts
+them into structured database filters using rule-based keyword matching — no AI or
+external services involved.
+
+---
+
+## How It Works
+
+The parser lowercases the query, then scans it in passes for gender, age group,
+age range, and country. Each pass is independent, so filters combine freely:
+`"young males from nigeria"` produces gender + age range + country all at once.
+
+---
+
+## Supported Keywords and Mappings
+
+### Gender → `gender`
+
+| Keywords | Filter |
+|---|---|
+| male, males, men, man, boy, boys | `gender=male` |
+| female, females, women, woman, girl, girls | `gender=female` |
+| "male and female" / both present | no gender filter (returns all) |
+
+---
+
+### Age Group → `age_group`
+
+| Keywords | Filter |
+|---|---|
+| senior, elderly, old people | `age_group=senior` |
+| adult, adults | `age_group=adult` |
+| teenager, teenagers, teen, teens, adolescent | `age_group=teenager` |
+| child, children, kid, kids | `age_group=child` |
+
+> "young" is treated separately — it maps to `min_age=16 + max_age=24` and does
+> not set `age_group`.
+
+---
+
+### Age Range → `min_age` / `max_age`
+
+| Pattern | Example | Filter |
+|---|---|---|
+| above / over / older than N | "above 30" | `min_age=30` |
+| below / under / younger than N | "under 18" | `max_age=18` |
+| between N and M | "between 20 and 40" | `min_age=20, max_age=40` |
+| young | "young males" | `min_age=16, max_age=24` |
+
+---
+
+### Country → `country_id`
+
+Country names are matched using the `pycountry` library (249 countries).
+The full country name must appear in the query. A 2-letter ISO code is used
+as a fallback if no country name is found.
+
+| Example | Filter |
+|---|---|
+| "from nigeria" | `country_id=NG` |
+| "people in tanzania" | `country_id=TZ` |
+| "adults from NG" | `country_id=NG` (ISO fallback) |
+
+---
+
+### Sorting → `sort_by` / `order`
+
+| Keywords | Filter |
+|---|---|
+| "sort by age", "order by age" | `sort_by=age` |
+| "recent", "latest", "newest" | `sort_by=created_at, order=desc` |
+| "descending", "desc", "highest", "oldest" | `order=desc` |
+| "ascending", "asc", "lowest", "youngest" | `order=asc` |
+
+---
+
+### Limit → `limit`
+
+| Pattern | Example | Filter |
+|---|---|---|
+| top N / first N / limit N | "top 20 adults" | `limit=20` (max 50) |
+
+---
+
+## Example Mappings
+
+| Query | Extracted Filters |
+|---|---|
+| `young males from nigeria` | `gender=male, min_age=16, max_age=24, country_id=NG` |
+| `females above 30` | `gender=female, min_age=30` |
+| `people from angola` | `country_id=AO` |
+| `adult males from kenya` | `gender=male, age_group=adult, country_id=KE` |
+| `male and female teenagers above 17` | `age_group=teenager, min_age=17` |
+| `top 10 senior women in ghana` | `gender=female, age_group=senior, country_id=GH, limit=10` |
+
+---
+
+## Limitations and Known Edge Cases
+
+### What the parser does not handle
+
+- **Alternate spellings and typos** — `"nigria"`, `"kenya"`, `"femal"` will not
+  match. The parser requires exact keyword matches.
+
+- **Relative age terms beyond "young"** — words like `"middle-aged"`, `"mature"`,
+  `"elderly men in their 60s"` are not mapped to any filter.
+
+- **Age with units** — `"over thirty"` (written out) will not match. Only digit
+  forms like `"over 30"` are supported.
+
+- **Multiple countries** — `"people from nigeria or kenya"` will only match the
+  first country found. There is no multi-country OR filter.
+
+- **Negation** — `"not from nigeria"`, `"excluding males"` are not handled. The
+  negative is ignored and the keyword still matches.
+
+- **Compound conditions with OR** — `"males or females above 40"` will produce
+  no gender filter (both genders detected) and `min_age=40`, which is correct
+  by coincidence but not by design.
+
+- **Common country name variants** — `"Congo"` may match the wrong country since
+  both Democratic Republic of Congo and Republic of Congo exist. The parser picks
+  whichever `pycountry` returns first.
+
+- **Abbreviations and demonyms** — `"Nigerians"`, `"Kenyan women"`, `"a Ghanaian"`
+  will not match. Only full official country names and ISO codes are supported.
+
+- **Queries with no recognisable keywords** — return
+  `{ "status": "error", "message": "Unable to interpret query" }`.
+
+- **Pagination in natural language** — `"show me page 2"` or `"next 10"` are not
+  parsed. Pagination must be passed explicitly via `page` and `limit` query params.
+
 ## Error Responses
 
 | Status | Meaning |
