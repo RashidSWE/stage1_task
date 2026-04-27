@@ -4,15 +4,18 @@ from contextlib import asynccontextmanager
 from app.db.session import create_db_and_Tables
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
-
+import asyncio
+from app.db.seed import seed_profiles
 from app.models.model import NameAnalysis, GenderCategory, GenderResult, AgeResult, NationalizeResult
 from app.api.routes import analyze
-
+from fastapi.exceptions import RequestValidationError
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    create_db_and_Tables()
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, create_db_and_Tables)
+    await loop.run_in_executor(None, seed_profiles)
     yield
 
 
@@ -35,6 +38,12 @@ async def http_exception_handelr(request: Request, exc: HTTPException):
         content={"status": str(exc.status_code), "message": exc.detail}
     )
 
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=422,
+        content={"status": "error", "message": "Invalid query parameters"}
+    )
 
 # Handle any unexpected server errors
 @app.exception_handler(Exception)
