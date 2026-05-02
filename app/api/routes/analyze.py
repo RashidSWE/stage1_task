@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlmodel import Session, select, func
-from app.db.session import get_session
-from app.models.model import NameAnalysis, GenderCategory, GenderResult, AgeResult, NationalizeResult, NameRequest, ProfileResponse, Profile
-import httpx
-from app.services.classify import classify_age
-from app.services.parse import parse_query
+from db.session import get_session
+from models.model import NameAnalysis, GenderCategory, GenderResult, AgeResult, NationalizeResult, NameRequest, ProfileResponse, Profile
+from services.security import get_current_user
+from services.classify import classify_age
+from services.parse import parse_query
 from typing import Optional
 import asyncio
 import httpx
@@ -292,3 +292,11 @@ async def delete_profile(id: str, session: Session = Depends(get_session)):
     session.commit()
 
     return
+
+
+@router.get("/Profile/me")
+async def get_my_profile(user_id: str = Depends(get_current_user)):
+    return {
+        "message": "Authorization successful!",
+        "username": user_id
+    }
