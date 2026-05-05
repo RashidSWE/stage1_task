@@ -2,7 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlmodel import Session, select, func
 from db.session import get_session
 from models.model import NameAnalysis, GenderCategory, GenderResult, AgeResult, NationalizeResult, NameRequest, ProfileResponse, Profile
-from services.security import get_current_user
+from core.cache import cache_get, cache_set
+from core.normalizer import normalize_filters, make_cache_key
+from services.security import get_current_user, get_user_browser
 from services.classify import classify_age
 from services.parse import parse_query
 from typing import Optional
@@ -135,21 +137,28 @@ def fetch_profiles(
     sort_by, order, page, limit, session
 ):
     query = select(Profile)
+    normalized = normalize_filters(query)
+    cache_key = make_cache_key(query)
+
+    cached_result = cache_get(cache_key)
+
+    if cached_result is not None:
+        return {"status": "success", "count": len(cached_result), "data": cached_result, "cached": True}
 
     if gender:
-        query = query.where(Profile.gender == gender.lower())
+        query = normalized.where(Profile.gender == gender.lower())
     if country_id:
-        query = query.where(Profile.country_id == country_id.upper())
+        query = normalized.where(Profile.country_id == country_id.upper())
     if age_group:
-        query = query.where(Profile.age_group == age_group.lower())
+        query = normalized.where(Profile.age_group == age_group.lower())
     if min_age is not None:
-        query = query.where(Profile.age >= min_age)
+        query = normalized.where(Profile.age >= min_age)
     if max_age is not None:
-        query = query.where(Profile.age <= max_age)
+        query = normalized.where(Profile.age <= max_age)
     if min_gender_probability is not None:
-        query = query.where(Profile.gender_probability >= min_gender_probability)
+        query = normalized.where(Profile.gender_probability >= min_gender_probability)
     if min_country_probability is not None:
-        query = query.where(Profile.country_probability >= min_country_probability)
+        query = normalized.where(Profile.country_probability >= min_country_probability)
 
     total = session.exec(select(func.count()).select_from(query.subquery())).one()
 
@@ -162,12 +171,16 @@ def fetch_profiles(
 
     profiles = session.exec(query).all()
 
+    result = [ProfileResponse.model_validate(p) for p in profiles]
+
+    cache_set(cache_key, result)
     return {
         "status": "success",
         "page": page,
         "limit": limit,
         "total": total,
-        "data": [ProfileResponse.model_validate(p) for p in profiles]
+        "data": reesult,
+        "cached": False
     }
 
 @router.get("/profiles/search")
@@ -300,3 +313,14 @@ async def get_my_profile(user_id: str = Depends(get_current_user)):
         "message": "Authorization successful!",
         "username": user_id
     }
+
+@router.get("/portal/dashboard")
+async def get_secure_dashboard(user_id: str = Depends(get_user_browser)):
+    return {
+        "message": "Web Authorization successful!",
+        "username": user_id,
+        "secure_data": [
+            {"id": 1, "resource": "Backend Architecture Diagrams", "access": "granted"},
+            {"id": 2, "resource": "Database Credentials", "access": "granted"}
+        ]
+}
