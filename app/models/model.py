@@ -1,5 +1,5 @@
 from sqlmodel import SQLModel, Field, Relationship
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 from enum import Enum
 from uuid6 import uuid7
@@ -83,3 +83,13 @@ class ProfileResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class TokenExchangeRequest(BaseModel):
+    code: str
+    code_verifier: str
+
+class User(SQLModel, table=True):
+    id: str = Field(default_factory=lambda : str(uuid7()), primary_key=True)
+    github_username: str
+    email: EmailStr
