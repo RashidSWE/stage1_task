@@ -1,4 +1,3 @@
-```markdown
 # Name Profile API
 
 A REST API that analyzes a given name using [Genderize.io](https://genderize.io), [Agify.io](https://agify.io), and [Nationalize.io](https://nationalize.io) to predict gender, age, and nationality. Results are stored in a PostgreSQL database.
