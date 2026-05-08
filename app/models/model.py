@@ -94,4 +94,4 @@ class User(SQLModel, table=True):
     github_username: str
     email: EmailStr
     role: str
-    created_at: Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
