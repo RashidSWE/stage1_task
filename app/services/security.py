@@ -3,7 +3,9 @@ import os
 from datetime import datetime, timedelta, timezone
 from fastapi import Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi import Request, HTTPException, status
+from fastapi import Request, HTTPException, status, Depends
+from db.session import get_session
+from models.model import User
 
 JWT_SECRET = os.getenv("JWT_SECRET", "secret_key")
 ALGORITHM = "HS256"
@@ -21,19 +23,31 @@ def create_refresh_token(user_id: str) -> str:
     payload = {"sub": user_id, "exp": expire, "type": "refresh"}
     return jwt.encode(payload, JWT_SECRET, algorithm=ALGORITHM)
 
-def get_current_user(credentials: HTTPAuthorizationCredentials = Security(security)):
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    session: Session = Depends(get_sesion)
+):
     token = credentials.credentials
 
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])
 
-        return payload.get("sub")
+        user_id = payload.get("sub")
+
+        if not user_id:
+            raise HTTPException(status_code=401, detail="invalid token")
 
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token Expired")
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
+    
+    user = session.query(User).filter(User.id == user_id).first()
 
+    if not user:
+        raise HTTPException(status_code=401, detail="Usern not found")
+    
+    return User
 
 async def get_user_browser(request: Request):
 
