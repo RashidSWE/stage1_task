@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
 from sqlmodel import Session, select
-from app.db.session import engine
-from app.models.model import Profile
+from db.session import engine
+from models.model import Profile
 
 
 BASE_DIR = Path(__file__).parent
