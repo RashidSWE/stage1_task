@@ -1,5 +1,5 @@
 from sqlmodel import Session
-from app.db.session import get_session
+from db.session import get_session
 import re
 import pycountry
 
