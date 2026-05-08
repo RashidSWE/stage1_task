@@ -93,3 +93,5 @@ class User(SQLModel, table=True):
     id: str = Field(default_factory=lambda : str(uuid7()), primary_key=True)
     github_username: str
     email: EmailStr
+    role: str
+    created_at: Field(default_factory=datetime.utcnow)
